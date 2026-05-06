@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Runs commitlint against the commit message and additionally blocks any
+# AI-attribution markers that commitlint's plugin may have missed.
+
+set -euo pipefail
+
+COMMIT_MSG_FILE="$1"
+
+# Run commitlint (reads commitlint.config.js from repo root or CWD).
+if command -v npx &>/dev/null; then
+  npx --no-install commitlint --edit "$COMMIT_MSG_FILE"
+else
+  echo "commit-msg: npx not found; cannot run commitlint." >&2
+  exit 1
+fi
+
+# Belt-and-suspenders: block AI attribution even without the commitlint plugin.
+CO_AUTHOR_PATTERN='Co-Authored-By:'
+AI_PATTERN='(🤖 Generated|Claude|Paperclip|claude-code|noreply@anthropic\.com|noreply@paperclip\.ing)'
+
+if grep -qiP "$CO_AUTHOR_PATTERN" "$COMMIT_MSG_FILE" 2>/dev/null || \
+   grep -qiE "$CO_AUTHOR_PATTERN" "$COMMIT_MSG_FILE" 2>/dev/null; then
+  echo "commit-msg: AI co-author line detected — remove 'Co-Authored-By:' from the message." >&2
+  exit 1
+fi
+
+if grep -qiP "$AI_PATTERN" "$COMMIT_MSG_FILE" 2>/dev/null || \
+   grep -qiE "$AI_PATTERN" "$COMMIT_MSG_FILE" 2>/dev/null; then
+  echo "commit-msg: AI-attribution marker detected — remove Claude/Paperclip references from the message." >&2
+  exit 1
+fi

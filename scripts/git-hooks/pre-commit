@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Enforces that the committing identity matches the canonical DayOne AI author.
+# Abort if either user.name or user.email is wrong.
+
+set -euo pipefail
+
+REQUIRED_NAME="eduardoaugustoes"
+REQUIRED_EMAIL="s.eduardoaugusto@gmail.com"
+
+CURRENT_NAME="$(git config user.name 2>/dev/null || echo '')"
+CURRENT_EMAIL="$(git config user.email 2>/dev/null || echo '')"
+
+FAIL=0
+
+if [[ "$CURRENT_NAME" != "$REQUIRED_NAME" ]]; then
+  echo "pre-commit: git user.name is '$CURRENT_NAME' but must be '$REQUIRED_NAME'." >&2
+  FAIL=1
+fi
+
+if [[ "$CURRENT_EMAIL" != "$REQUIRED_EMAIL" ]]; then
+  echo "pre-commit: git user.email is '$CURRENT_EMAIL' but must be '$REQUIRED_EMAIL'." >&2
+  FAIL=1
+fi
+
+if [[ "$FAIL" -eq 1 ]]; then
+  echo "" >&2
+  echo "Fix with:" >&2
+  echo "  git config user.name  \"$REQUIRED_NAME\"" >&2
+  echo "  git config user.email \"$REQUIRED_EMAIL\"" >&2
+  exit 1
+fi

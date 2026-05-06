@@ -1,0 +1,112 @@
+name: commit-policy
+
+on:
+  pull_request:
+    branches: ["**"]
+  # Reusable by other repos
+  workflow_call:
+    inputs:
+      canonical_author_name:
+        description: "Required git author name for every commit"
+        type: string
+        default: "eduardoaugustoes"
+      canonical_author_email:
+        description: "Required git author email for every commit"
+        type: string
+        default: "s.eduardoaugusto@gmail.com"
+
+jobs:
+  commit-policy:
+    name: Commit policy enforcement
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install commitlint
+        run: npm install --no-save @commitlint/cli @commitlint/config-conventional
+
+      - name: Determine commit range
+        id: range
+        run: |
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          HEAD="${{ github.event.pull_request.head.sha || github.sha }}"
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "head=$HEAD" >> "$GITHUB_OUTPUT"
+
+      - name: Lint commit messages (commitlint)
+        run: |
+          npx commitlint \
+            --from "${{ steps.range.outputs.base }}" \
+            --to   "${{ steps.range.outputs.head }}" \
+            --verbose
+
+      - name: Assert author identity on every commit
+        env:
+          REQUIRED_NAME: ${{ inputs.canonical_author_name || 'eduardoaugustoes' }}
+          REQUIRED_EMAIL: ${{ inputs.canonical_author_email || 's.eduardoaugusto@gmail.com' }}
+        run: |
+          FAIL=0
+          while IFS= read -r commit; do
+            NAME="$(git log -1 --format='%an' "$commit")"
+            EMAIL="$(git log -1 --format='%ae' "$commit")"
+            if [[ "$NAME" != "$REQUIRED_NAME" || "$EMAIL" != "$REQUIRED_EMAIL" ]]; then
+              echo "::error::Commit $commit has wrong author: '$NAME <$EMAIL>'" \
+                   "(expected '$REQUIRED_NAME <$REQUIRED_EMAIL>')"
+              FAIL=1
+            fi
+          done < <(git log --format='%H' \
+                     "${{ steps.range.outputs.base }}..${{ steps.range.outputs.head }}")
+
+          if [[ "$FAIL" -eq 1 ]]; then
+            exit 1
+          fi
+          echo "All commits have correct author identity."
+
+      - name: Check for AI attribution in commit messages
+        run: |
+          FAIL=0
+          while IFS= read -r commit; do
+            MSG="$(git log -1 --format='%B' "$commit")"
+            if echo "$MSG" | grep -qiE 'Co-Authored-By:'; then
+              echo "::error::Commit $commit contains 'Co-Authored-By:' line."
+              FAIL=1
+            fi
+            if echo "$MSG" | grep -qiE \
+              '(🤖 Generated|Claude|Paperclip|claude-code|noreply@anthropic\.com|noreply@paperclip\.ing)'; then
+              echo "::error::Commit $commit contains AI-attribution marker."
+              FAIL=1
+            fi
+          done < <(git log --format='%H' \
+                     "${{ steps.range.outputs.base }}..${{ steps.range.outputs.head }}")
+
+          if [[ "$FAIL" -eq 1 ]]; then
+            exit 1
+          fi
+          echo "No AI-attribution markers found."
+
+      - name: Install gitleaks
+        run: |
+          GITLEAKS_VERSION="8.18.4"
+          curl -sSfL \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+
+      - name: Run gitleaks on diff range
+        run: |
+          gitleaks detect \
+            --source . \
+            --log-opts "${{ steps.range.outputs.base }}..${{ steps.range.outputs.head }}" \
+            --redact \
+            --exit-code 1

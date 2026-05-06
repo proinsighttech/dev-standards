@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Runs gitleaks on the commits being pushed and aborts if secrets are found.
+
+set -euo pipefail
+
+if ! command -v gitleaks &>/dev/null; then
+  echo "pre-push: gitleaks not found. Install it: https://github.com/gitleaks/gitleaks#installing" >&2
+  exit 1
+fi
+
+REMOTE="$1"
+REMOTE_URL="$2"
+
+# Read the push refspecs from stdin (format: <local-ref> <local-sha> <remote-ref> <remote-sha>)
+while read -r LOCAL_REF LOCAL_SHA REMOTE_REF REMOTE_SHA; do
+  # Skip deletes
+  if [[ "$LOCAL_SHA" == "0000000000000000000000000000000000000000" ]]; then
+    continue
+  fi
+
+  if [[ "$REMOTE_SHA" == "0000000000000000000000000000000000000000" ]]; then
+    # New branch — scan from the first commit
+    RANGE="$LOCAL_SHA"
+  else
+    RANGE="$REMOTE_SHA..$LOCAL_SHA"
+  fi
+
+  echo "pre-push: running gitleaks on range $RANGE..." >&2
+  if ! gitleaks detect --source . --log-opts "$RANGE" --redact --exit-code 1; then
+    echo "" >&2
+    echo "pre-push: gitleaks found potential secrets in the push range." >&2
+    echo "Remediate, then re-push. To skip (emergency only): git push --no-verify" >&2
+    exit 1
+  fi
+done
+
+echo "pre-push: gitleaks scan passed." >&2
