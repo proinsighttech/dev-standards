@@ -121,3 +121,4 @@ When a new version is released:
 1. Review the changelog.
 2. Update the tag in `package.json` and the `workflow_call` ref.
 3. Re-run `node node_modules/@dayone-ai/dev-standards/scripts/install-hooks.js` to refresh hook files.
+# CI dogfood verification
